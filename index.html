@@ -651,7 +651,7 @@ addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
 resize();
 await loadCorporeal();
 addPlane(TITLE);
-if (!SR) document.body.classList.add("notalk");
+if (!SR && !CAN_LOCAL) document.body.classList.add("notalk");   // only type when there is no way to listen at all
 requestAnimationFrame(frame);
 </script>
 </body>
