@@ -86,6 +86,7 @@
 <button id="closeInfo" class="lcd">Close</button>
 
 <div id="caption" class="lcd"></div>
+<pre id="dbg" style="display:none;position:fixed;left:8px;top:44px;z-index:20;max-width:92vw;max-height:46vh;overflow:auto;margin:0;padding:8px;font:11px/1.35 ui-monospace,Menlo,monospace;background:rgba(255,255,255,.92);border:1px solid #ddd;white-space:pre-wrap;"></pre>
 <div id="loader"><div id="ring"></div><div id="loadText" class="lcd"></div></div>
 
 <footer id="bottom">
@@ -485,8 +486,13 @@ function frame(t) {
 // ================= speech =================
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const SR = IOS ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);   // on iPhone and iPad the in-page model is more reliable than Apple's   // other browsers on iPhone have no working speech: type instead
-const typeInstead = msg => { stopMic(); if (msg) { caption(msg); setTimeout(() => caption(""), 3000); } document.body.classList.add("notalk"); $("typeInput").focus(); };
+const typeInstead = msg => { dbg("type instead: " + msg); stopMic(); if (msg) { caption(msg); setTimeout(() => caption(""), 3000); } document.body.classList.add("notalk"); $("typeInput").focus(); };
 const CAN_LOCAL = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); let useLocal = false;
+const DEBUG = /[?&]debug/.test(location.search);                          // add ?debug to the address to see each step on screen
+function dbg(m) { if (!DEBUG) return; const el = $("dbg"); el.style.display = "block"; el.textContent += new Date().toTimeString().slice(3, 8) + "  " + m + "\n"; el.scrollTop = 1e9; }
+if (DEBUG) { dbg("ua " + navigator.userAgent.slice(0, 90)); dbg("native speech " + !!SR + ", mic api " + CAN_LOCAL + ", secure " + isSecureContext); }
+addEventListener("error", e => dbg("ERROR " + e.message));
+addEventListener("unhandledrejection", e => dbg("REJECT " + (e.reason && (e.reason.message || e.reason))));
 let rec = null, micOn = false, micStream = null, restarts = 0;
 const clean = s => s.replace(/<\/?s>/gi, "").trim();
 async function startMic() {
@@ -501,7 +507,7 @@ async function startMic() {
       restarts = 0;
     };
     rec.onerror = ev => {
-      if (ev.error === "no-speech" || ev.error === "aborted") return;
+      dbg("native error " + ev.error); if (ev.error === "no-speech" || ev.error === "aborted") return;
       if (ev.error !== "not-allowed" && CAN_LOCAL) { useLocal = true; micOn = false; try { rec.stop(); } catch {} startLocal(); return; }   // built-in speech broken: use the in-page model
       typeInstead("Microphone not available");
     };
@@ -545,38 +551,43 @@ async function loadASR() {
       progress_callback: d => {
         if (d.status !== "progress" || !d.total) return;
         files[d.file] = [d.loaded, d.total]; let a = 0, b = 0; for (const [l, t] of Object.values(files)) { a += l; b += t; }
-        loader(true, a / b * .96, "Loading the voice");
+        loader(true, a / b * .96, "Loading the voice"); if (DEBUG && Math.round(a / b * 100) % 25 === 0) dbg("model " + Math.round(a / b * 100) + "%");
       } });
-    loader(true, 1, "Ready"); setTimeout(() => loader(false), 700);
+    loader(true, 1, "Ready"); setTimeout(() => loader(false), 700); dbg("model ready");
     return p;
   })();
   try { asr = await asrLoading; } catch (e) { asrLoading = null; loader(false); throw e; }
   return asr;
 }
 async function startLocal() {
+  dbg("start in-page speech");
   actx = actx || new (window.AudioContext || window.webkitAudioContext)();       // made inside the tap, so phones allow sound
+  dbg("audio " + actx.state + " " + actx.sampleRate + " Hz");
   micOn = true; $("micBtn").classList.add("on");
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    dbg("mic ok: " + micStream.getAudioTracks().map(t => t.label || "track").join(", "));
     if (!micOn) return stopMic();
-    await actx.resume();
-    loadASR().catch(() => typeInstead("The voice could not load"));                                     // load while they start talking
+    await actx.resume(); dbg("audio after resume " + actx.state);
+    loadASR().catch(e => { dbg("model failed " + (e && (e.message || e))); typeInstead("The voice could not load"); });                                     // load while they start talking
     src = actx.createMediaStreamSource(micStream); proc = actx.createScriptProcessor(4096, 1, 1);
     src.connect(proc); proc.connect(actx.destination);
     proc.onaudioprocess = e => listen(e.inputBuffer.getChannelData(0));
     caption(spoken % 2 ? "Other side" : "Say a sentence");
-  } catch { typeInstead("Microphone not available"); }
+  } catch (e) { dbg("mic failed " + (e && (e.name + " " + e.message))); typeInstead("Microphone not available"); }
 }
+let lastLvl = 0;
 function listen(ch) {                                                      // collect one spoken sentence at a time
   let e = 0; for (let i = 0; i < ch.length; i++) e += ch[i] * ch[i];
   const rms = Math.sqrt(e / ch.length), chunk = new Float32Array(ch), secs = ch.length / actx.sampleRate;
   if (!voiced) floor = floor * .92 + Math.min(rms, .05) * .08;                  // learn the room
   const loud = rms > Math.max(.006, floor * 2.6);
+  if (DEBUG && performance.now() - lastLvl > 1000) { lastLvl = performance.now(); dbg("level " + rms.toFixed(4) + " floor " + floor.toFixed(4) + (voiced ? " speaking" : "")); }
   if (loud) { if (!voiced) { buf = pre.slice(); voiced = true; if (micOn) caption("Listening&hellip;"); } quiet = 0; buf.push(chunk); }
   else if (voiced) { buf.push(chunk); quiet += secs; }
   else { pre.push(chunk); if (pre.length > 3) pre.shift(); }
   const len = buf.reduce((a, c) => a + c.length, 0) / actx.sampleRate;
-  if (voiced && (quiet > .8 || len > 14)) { const seg = buf; buf = []; voiced = false; quiet = 0; transcribe(seg); }
+  if (voiced && (quiet > .8 || len > 14)) { dbg("sentence " + len.toFixed(1) + " s"); const seg = buf; buf = []; voiced = false; quiet = 0; transcribe(seg); }
 }
 async function transcribe(seg) {
   const all = new Float32Array(seg.reduce((a, c) => a + c.length, 0)); let o = 0; for (const c of seg) { all.set(c, o); o += c.length; }
@@ -584,10 +595,10 @@ async function transcribe(seg) {
   for (let i = 0; i < out.length; i++) { const x = i * r, j = Math.floor(x), f = x - j; out[i] = all[j] * (1 - f) + (all[j + 1] || 0) * f; }
   busy++; caption(asr ? "&hellip;" : "Loading the voice&hellip;");
   try {
-    const model = await loadASR(), res = await model(out);
+    const model = await loadASR(); const t0 = performance.now(); const res = await model(out); dbg("heard in " + Math.round(performance.now() - t0) + " ms: " + JSON.stringify(res.text));
     const txt = (res.text || "").replace(/\[[^\]]*\]|\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
     if (txt.length > 1) say(txt); else if (micOn) caption(spoken % 2 ? "Other side" : "Say a sentence");
-  } catch { typeInstead("Could not hear that, type instead"); }
+  } catch (e) { dbg("transcribe failed " + (e && (e.message || e))); typeInstead("Could not hear that, type instead"); }
   busy--;
 }
 function say(txt) {
