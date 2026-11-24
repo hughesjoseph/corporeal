@@ -177,30 +177,47 @@ function glyph(ch) {
 const EM = CORP.pxem, SPACE = Math.round(EM * .278);
 function adv(ch) { const g = CORP.glyphs[ch]; return g ? g.adv : SPACE; }
 // returns a canvas whose R, G, B hold each channel's ink coverage (1 - screen colour)
+// lines: [{ text, size }] with size 1 for the quote and smaller for the attribution.
+// Glyphs are resampled smoothly at their size, so the small line is the same Corporeal, just quieter.
 function compose(lines) {
-  const lh = Math.round(EM * 1.12), pad = Math.round(EM * .4);
-  const W = Math.max(...lines.map(l => [...l].reduce((a, c) => a + adv(c), 0))) + pad * 2, H = lh * lines.length + pad * 2;
+  lines = lines.map(l => typeof l === "string" ? { text: l, size: 1 } : l);
+  const pad = Math.round(EM * .4);
+  let y = pad, W = 0; const rows = [];
+  lines.forEach((l, i) => {
+    const sz = l.size, gapAbove = i > 0 && sz < lines[i - 1].size ? EM * .42 : 0;   // breathing room before a smaller line
+    y += gapAbove + EM * .9 * sz; rows.push({ ...l, base: Math.round(y) }); y += EM * .22 * sz;
+    W = Math.max(W, [...l.text].reduce((a, c) => a + adv(c), 0) * sz);
+  });
+  W = Math.ceil(W) + pad * 2; const H = Math.ceil(y + pad);
   const out = new Float32Array(W * H * 3).fill(1);
-  lines.forEach((l, li) => {
-    let pen = pad; const base = pad + Math.round(EM * .9) + li * lh;
-    for (const ch of l) {
+  for (const r of rows) {
+    let pen = pad; const sz = r.size;
+    for (const ch of r.text) {
       const G = glyph(ch);
       if (G) {
-        const ox = pen - (G.g.core - G.g.x0), oy = base - (G.g.base - G.g.y0);
-        for (let y = 0; y < G.h; y++) { const yy = oy + y; if (yy < 0 || yy >= H) continue;
-          for (let x = 0; x < G.w; x++) { const xx = ox + x; if (xx < 0 || xx >= W) continue;
-            const di = (yy * W + xx) * 3, si = (y * G.w + x) * 3;
-            out[di] *= G.px[si]; out[di + 1] *= G.px[si + 1]; out[di + 2] *= G.px[si + 2]; } }
+        const ox = pen - (G.g.core - G.g.x0) * sz, oy = r.base - (G.g.base - G.g.y0) * sz;
+        const tw = Math.ceil(G.w * sz), th = Math.ceil(G.h * sz);
+        for (let ty = 0; ty < th; ty++) { const yy = Math.round(oy) + ty; if (yy < 0 || yy >= H) continue;
+          for (let tx = 0; tx < tw; tx++) { const xx = Math.round(ox) + tx; if (xx < 0 || xx >= W) continue;
+            // bilinear sample of the glyph at this size
+            const sx = Math.min(G.w - 1.001, tx / sz), sy = Math.min(G.h - 1.001, ty / sz), x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0;
+            const di = (yy * W + xx) * 3;
+            for (let c = 0; c < 3; c++) {
+              const a = G.px[(y0 * G.w + x0) * 3 + c], b = G.px[(y0 * G.w + x0 + 1) * 3 + c];
+              const d2 = G.px[((y0 + 1) * G.w + x0) * 3 + c], e2 = G.px[((y0 + 1) * G.w + x0 + 1) * 3 + c];
+              out[di + c] *= (a * (1 - fx) + b * fx) * (1 - fy) + (d2 * (1 - fx) + e2 * fx) * fy;
+            } } }
       }
-      pen += adv(ch);
+      pen += adv(ch) * sz;
     }
-  });
+  }
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const x = c.getContext("2d"), img = x.createImageData(W, H), d = img.data;
   for (let i = 0, j = 0; i < W * H; i++, j += 3) { d[i * 4] = (1 - out[j]) * 255; d[i * 4 + 1] = (1 - out[j + 1]) * 255; d[i * 4 + 2] = (1 - out[j + 2]) * 255; d[i * 4 + 3] = 255; }
   x.putImageData(img, 0, 0);
   return { canvas: c, w: W, h: H, pad };
 }
+
 const INK = new THREE.Color("#111111"), PAPER = new THREE.Color("#ffffff");
 
 // ================= scene =================
@@ -217,12 +234,12 @@ function resize() {
 }
 addEventListener("resize", resize);
 
-const rig = { pos: new THREE.Vector3(0, 0, 11), yaw: 0, pitch: 0 };
-const tgt = { pos: rig.pos.clone(), yaw: 0, pitch: 0 };
+const rig = { pos: new THREE.Vector3(0, 0, 11), yaw: 0, pitch: 0, roll: 0 };
+const tgt = { pos: rig.pos.clone(), yaw: 0, pitch: 0, roll: 0 };
 const forward = (yaw = tgt.yaw, pitch = tgt.pitch) => new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
 const right = (yaw = tgt.yaw) => new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 let lastManual = -1e9;
-function manual() { lastManual = performance.now(); if (demo) stopDemo(); }
+function manual() { lastManual = performance.now(); if (demo) stopDemo(); tgt.roll = 0; }
 
 // ================= text =================
 const UNIT = 1 / EM;                                   // 1 em = 1 world unit
@@ -315,7 +332,9 @@ function layout(i) {
 function addPlane(text) {
   const parts = normalise(text.replace(/<\/?s>/gi, "")).split("\n").map(t => t.replace(/\s+/g, " ").trim()).filter(Boolean);
   if (!parts.length) return null;
-  const lines = parts.flatMap(t => wrap(t, 20)), b = compose(lines);
+  // a quotation's last part is its author: set at half size, a quiet second level under the quote
+  const lines = parts.flatMap((t, i) => (parts.length > 1 && i === parts.length - 1)
+    ? wrap(t, 34).map(text => ({ text, size: .5 })) : wrap(t, 20).map(text => ({ text, size: 1 }))), b = compose(lines);
   const tSub = new THREE.CanvasTexture(b.canvas);
   tSub.minFilter = THREE.LinearMipmapLinearFilter; tSub.magFilter = THREE.LinearFilter; tSub.generateMipmaps = true;
   const w = b.w * UNIT, h = b.h * UNIT, ts = new THREE.Vector2(b.w, b.h);
@@ -355,31 +374,53 @@ const ease = t => t * t * t * (t * (t * 6 - 15) + 10);
 function buildDemo() {
   if (!quotesAdded) { QUOTES.forEach(q => addPlane(q)); quotesAdded = true; }
   const T = planes[0], g = T.group, L = (x, y, z) => g.localToWorld(new THREE.Vector3(x, y, z));
-  const lx = -T.w / 2 + T.pad + .1, ly = T.h / 2 - T.pad - .5;          // the "I" that opens the title
-  const k = [];
-  k.push({ ...lookPose(new THREE.Vector3(0, 0, 12), new THREE.Vector3(0, 0, 0)), d: 0 });
-  k.push({ ...lookPose(new THREE.Vector3(0, 0, 10.5), new THREE.Vector3(0, 0, 0)), d: 4 });          // hold on the screenshot
-  k.push({ ...lookPose(L(lx + .9, ly - .2, 4), L(lx, ly, 0)), d: 8 });
-  k.push({ ...lookPose(L(lx + .2, ly, 1.2), L(lx + .1, ly, -.5)), d: 8 });                         // depth appears
-  k.push({ ...lookPose(L(lx + .22, ly, .45), L(lx + .5, ly, -2)), d: 7 });                         // into the gap after the "I"
-  k.push({ ...lookPose(L(lx + .22, ly - .05, -DEPTH * .6), L(lx + .9, ly, -4)), d: 8 });           // between the walls
-  k.push({ ...lookPose(L(lx + 1.4, ly + .7, -DEPTH - 1.3), L(lx + .4, ly, -DEPTH * .4)), d: 7 });  // out the back, looking round
-  for (let i = 1; i < planes.length && i < 6; i++) k.push({ ...poseFacing(planes[i]), d: 8 });
-  k.push({ ...lookPose(new THREE.Vector3(0, 7, 14), new THREE.Vector3(0, -1, -14)), d: 10 });
-  return k;
+  const lx = -T.w / 2 + T.pad + .1, ly = T.h / 2 - T.pad - .5;           // the "I" that opens the title
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const centre = P => P.group.getWorldPosition(new THREE.Vector3());
+  const normal = P => new THREE.Vector3(0, 0, 1).applyQuaternion(P.group.quaternion);
+  const near = (P, d, dx = 0, dy = 0) => centre(P).addScaledVector(normal(P), d).add(V(dx, dy, 0));
+  const [, A, B, C, F] = planes;                                           // quote walls (A left, B right, C left) and the floor
+  // pos, look-at, seconds to get there, pace, bank
+  return [
+    { pos: V(0, 0, 12), at: V(0, 0, 0), d: 0, ease: "inout", roll: 0 },
+    { pos: V(.8, .3, 9.4), at: V(0, 0, 0), d: 6, ease: "inout", roll: 0 },                         // hover: the screenshot
+    { pos: V(-3.2, -1.8, 5.2), at: L(lx, ly, 0), d: 4.5, ease: "in", roll: .16 },                   // swoop down at the "I"
+    { pos: L(lx + .22, ly - .02, .55), at: L(lx + .5, ly, -2), d: 5.5, ease: "out", roll: -.05 },   // glide into the gap
+    { pos: L(lx + .26, ly - .05, -DEPTH * .35), at: L(lx + .7, ly + .15, -3), d: 10, ease: "inout", roll: .04 },  // hang in the rainbow
+    { pos: L(lx + .9, ly + .5, -DEPTH - 2.2), at: L(lx + 2.5, ly, -1), d: 6, ease: "inout", roll: -.12 },        // out the back, turning
+    { pos: V(2.4, .6, -5.8), at: V(-.5, 0, 0), d: 6, ease: "inout", roll: 0 },                      // look back at the mirrored words, in the grain
+    { pos: V(.6, 4.2, -10), at: centre(A), d: 4, ease: "in", roll: .22 },                           // up and over, fast
+    { pos: near(A, 2.4, 1.2, .3), at: centre(A), d: 5, ease: "lin", roll: .08 },                   // skim the first wall
+    { pos: near(B, 3.4, -1.5, -.4), at: centre(B), d: 4.5, ease: "lin", roll: -.18 },              // bank across to the other side
+    { pos: near(B, .45, -1.6, .2), at: centre(B).add(V(-1.6, .2, 0)).addScaledVector(normal(B), -2), d: 6, ease: "out", roll: -.04 },  // dive in
+    { pos: near(B, -.55, -1.4, .1), at: centre(B).add(V(-1, 0, 0)).addScaledVector(normal(B), -4), d: 9, ease: "inout", roll: .05 },  // hang in its rainbow
+    { pos: near(C, 3, 0, .4), at: centre(C), d: 5, ease: "inout", roll: .12 },
+    { pos: near(F, 2.2, 0, 0).add(V(0, 0, 3)), at: centre(F).add(V(0, 0, -2)), d: 5, ease: "lin", roll: -.1 },   // glide low over the floor
+    { pos: V(0, 7, 14), at: V(0, -1, -14), d: 10, ease: "inout", roll: 0 },                         // pull up and away
+  ];
 }
 function startDemo() {
-  closeInfo(); const keys = buildDemo();
-  rig.pos.copy(keys[0].pos); rig.yaw = keys[0].yaw; rig.pitch = keys[0].pitch; tgt.pos.copy(rig.pos); tgt.yaw = rig.yaw; tgt.pitch = rig.pitch;
+  closeInfo(); const keys = buildDemo(), k0 = keys[0], p0 = lookPose(k0.pos, k0.at);
+  rig.pos.copy(p0.pos); rig.yaw = tgt.yaw = p0.yaw; rig.pitch = tgt.pitch = p0.pitch; tgt.pos.copy(rig.pos); rig.roll = tgt.roll = 0;
   demo = { keys, i: 1, t0: performance.now() };
   $("demoBtn").classList.add("on"); $("demoBtn").textContent = "Stop"; document.body.classList.add("demoing");
 }
 function stopDemo() { demo = null; $("demoBtn").classList.remove("on"); $("demoBtn").textContent = "Demo"; document.body.classList.remove("demoing", "awake"); }
 function angleLerp(a, b, t) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t; }
+const EASES = { inout: ease, in: u => u * u * u, out: u => 1 - Math.pow(1 - u, 3), lin: u => u * u * (3 - 2 * u) * .25 + u * .75 };
+function cr(p0, p1, p2, p3, t) {                                           // Catmull-Rom: a smooth curve through every point
+  const t2 = t * t, t3 = t2 * t;
+  return new THREE.Vector3().addScaledVector(p1, 2).addScaledVector(p2.clone().sub(p0), t)
+    .addScaledVector(p0.clone().multiplyScalar(2).sub(p1.clone().multiplyScalar(5)).add(p2.clone().multiplyScalar(4)).sub(p3), t2)
+    .addScaledVector(p1.clone().multiplyScalar(3).sub(p0).sub(p2.clone().multiplyScalar(3)).add(p3), t3).multiplyScalar(.5);
+}
 function stepDemo(t) {
-  const A = demo.keys[demo.i - 1], B = demo.keys[demo.i], u = Math.min(1, (t - demo.t0) / (B.d * 1000)), e = ease(u);
-  tgt.pos.lerpVectors(A.pos, B.pos, e); tgt.yaw = angleLerp(A.yaw, B.yaw, e); tgt.pitch = A.pitch + (B.pitch - A.pitch) * e;
-  if (u >= 1) { demo.i++; demo.t0 = t; if (demo.i >= demo.keys.length) stopDemo(); }
+  const K = demo.keys, i = demo.i, B = K[i], u = Math.min(1, (t - demo.t0) / (B.d * 1000)), e = EASES[B.ease](u);
+  const q = j => K[Math.max(0, Math.min(K.length - 1, j))];
+  const pos = cr(q(i - 2).pos, q(i - 1).pos, q(i).pos, q(i + 1).pos, e), at = cr(q(i - 2).at, q(i - 1).at, q(i).at, q(i + 1).at, e);
+  const pose = lookPose(pos, at);
+  tgt.pos.copy(pos); tgt.yaw = pose.yaw; tgt.pitch = pose.pitch; tgt.roll = q(i - 1).roll + (B.roll - q(i - 1).roll) * e;
+  if (u >= 1) { demo.i++; demo.t0 = t; if (demo.i >= K.length) stopDemo(); }
 }
 
 // ================= frame =================
@@ -394,8 +435,8 @@ function frame(t) {
   if (keys.has("a") || keys.has("arrowleft")) { tgt.pos.addScaledVector(r, -sp); manual(); }
   if (keys.has("d") || keys.has("arrowright")) { tgt.pos.addScaledVector(r, sp); manual(); }
   const k = 1 - Math.pow(demo ? .02 : .006, dt);
-  rig.pos.lerp(tgt.pos, k); rig.yaw = angleLerp(rig.yaw, tgt.yaw, k); rig.pitch += (tgt.pitch - rig.pitch) * k;
-  camera.position.copy(rig.pos); camera.lookAt(tmp.copy(rig.pos).add(forward(rig.yaw, rig.pitch)));
+  rig.pos.lerp(tgt.pos, k); rig.yaw = angleLerp(rig.yaw, tgt.yaw, k); rig.pitch += (tgt.pitch - rig.pitch) * k; rig.roll += (tgt.roll - rig.roll) * k;
+  camera.position.copy(rig.pos); camera.lookAt(tmp.copy(rig.pos).add(forward(rig.yaw, rig.pitch))); camera.rotateZ(rig.roll);   // bank into turns
 
   for (const P of planes) {
     const age = Math.min(1, (t - P.born) / 1800), e = 1 - Math.pow(1 - age, 3);
