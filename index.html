@@ -232,7 +232,9 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.02, 400);
 let PIX = .001;                                         // size of one screen pixel per unit of distance
 function resize() {
-  renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight;
+  camera.fov = camera.aspect >= 1 ? 50 : Math.min(75, 50 + (1 - camera.aspect) * 45);   // portrait phones: widen the view so the title still fits
+  camera.updateProjectionMatrix();
   PIX = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / innerHeight;
 }
 addEventListener("resize", resize);
