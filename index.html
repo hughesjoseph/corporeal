@@ -483,7 +483,8 @@ function frame(t) {
 }
 
 // ================= speech =================
-const SR = /CriOS|FxiOS|EdgiOS|GSA\//.test(navigator.userAgent) ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);   // other browsers on iPhone have no working speech: type instead
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const SR = IOS ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);   // on iPhone and iPad the in-page model is more reliable than Apple's   // other browsers on iPhone have no working speech: type instead
 const typeInstead = msg => { stopMic(); if (msg) { caption(msg); setTimeout(() => caption(""), 3000); } document.body.classList.add("notalk"); $("typeInput").focus(); };
 const CAN_LOCAL = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); let useLocal = false;
 let rec = null, micOn = false, micStream = null, restarts = 0;
