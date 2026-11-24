@@ -53,6 +53,11 @@
   #info dl { display: grid; grid-template-columns: 104px 1fr; gap: 4px 14px; }
   #info dt { color: var(--dim); }
   #info ol { padding-left: 18px; } #info li + li { margin-top: 5px; }
+  #info .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  #info .shots figure { margin: 0; } #info .shots .wide { grid-column: 1 / -1; }
+  #info .shots img { display: block; width: 100%; height: auto; background: #fff; }
+  #info .shots figure:not(.wide) img { aspect-ratio: 1; object-fit: cover; }
+  #info .shots figcaption { font-size: 11px; color: var(--dim); margin-top: 4px; }
   #closeInfo { position: fixed; top: 18px; right: 24px; z-index: 10; font-size: 13px; display: none; }
   body.info #closeInfo { display: block; } body.info #infoBtn { visibility: hidden; }
   @media (max-width: 900px) { #info .wrap { grid-template-columns: 1fr; } #howto { display: none; } }
@@ -116,6 +121,12 @@
         <h2>Origin</h2>
         <p>In September 2013 I took screenshots of Helvetica on an iMac and enlarged them in Photoshop. The letters came back fringed: yellow and orange on the left of each stroke, blue and cyan on the right. This is subpixel rendering. Each pixel is a red, a green and a blue stripe, and the system lit them separately to smooth an edge.</p>
         <p>I always imagined that accident as a kind of variable type in RGB, using the Z axis where the screen only had two dimensions. Separating and re-blending the channels in Photoshop never came close, because it isn't a blend. I called the result Corporeal. This sketch is the reconstruction.</p>
+              <div class="shots">
+          <figure class="wide"><img src="img/specimen-2013.jpg" alt="The full character set of Helvetica, screenshotted with LCD smoothing in September 2013" loading="lazy"><figcaption>The specimen, September 2013: every glyph in the piece is cut from this screenshot.</figcaption></figure>
+          <figure><img src="img/e-2013.jpg" alt="A single lowercase e, enlarged until its orange and blue subpixel fringes fill the frame" loading="lazy"><figcaption>e, enlarged</figcaption></figure>
+          <figure><img src="img/m-2013.jpg" alt="A capital M, enlarged, its strokes dissolving into black, blue, orange and cyan" loading="lazy"><figcaption>M, enlarged</figcaption></figure>
+          <figure class="wide"><img src="img/more-2013.jpg" alt="The word more in Helvetica, enlarged, with subpixel fringes on every stroke" loading="lazy"><figcaption>more</figcaption></figure>
+        </div>
       </section>
       <section>
         <h2>Specifications</h2>
