@@ -57,13 +57,22 @@
   body.info #closeInfo { display: block; } body.info #infoBtn { visibility: hidden; }
   @media (max-width: 900px) { #info .wrap { grid-template-columns: 1fr; } #howto { display: none; } }
   #howtoTouch { display: none; color: var(--dim); }
+  #loader { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 7; pointer-events: none; display: none; text-align: center; --b: 6px; --f: 3px; }
+  body.loading #loader { display: block; }
+  #ring { position: relative; width: 132px; height: 132px; margin: 0 auto; animation: spin 9s linear infinite; filter: blur(var(--b));
+    transition: filter .5s; }
+  #ring span { position: absolute; left: 50%; top: 50%; font-size: 15px; line-height: 1; width: 1ch; margin-left: -.5ch; margin-top: -.5em;
+    text-shadow: calc(-1 * var(--f)) 0 rgba(255,150,0,.75), var(--f) 0 rgba(0,110,255,.75); }
+  #loadText { margin-top: 22px; font-size: 13px; color: var(--dim); opacity: 0; transition: opacity .8s; }
+  #loader.slow #loadText { opacity: 1; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @media (pointer: coarse) { #howto { display: none; } #howtoTouch { display: block; } }
   video { display: none; }
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
-<script>if (/CriOS|FxiOS|EdgiOS|GSA\//.test(navigator.userAgent) || !(window.SpeechRecognition || window.webkitSpeechRecognition)) document.body.classList.add("notalk");</script>
+<script>if (!(window.SpeechRecognition || window.webkitSpeechRecognition) && !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) document.body.classList.add("notalk");</script>
 
 <header id="top">
   <div class="lcd">I have nothing to say, but I'm saying it anyway</div>
@@ -72,6 +81,7 @@
 <button id="closeInfo" class="lcd">Close</button>
 
 <div id="caption" class="lcd"></div>
+<div id="loader"><div id="ring"></div><div id="loadText" class="lcd"></div></div>
 
 <footer id="bottom">
   <div id="howto" class="lcd">Drag to look &nbsp;·&nbsp; Scroll to move through &nbsp;·&nbsp; Speak a sentence and it is set in space</div>
@@ -467,7 +477,7 @@ const typeInstead = () => { stopMic(); document.body.classList.add("notalk"); $(
 let rec = null, micOn = false, micStream = null, restarts = 0;
 const clean = s => s.replace(/<\/?s>/gi, "").trim();
 async function startMic() {
-  if (!SR) { document.body.classList.add("notalk"); $("typeInput").focus(); return; }
+  if (!SR) { if (LOCAL) return startLocal(); document.body.classList.add("notalk"); $("typeInput").focus(); return; }
   if (!rec) {
     rec = new SR(); rec.lang = navigator.language || "en-GB"; rec.interimResults = true; rec.continuous = true;
     rec.onresult = ev => {
@@ -483,7 +493,84 @@ async function startMic() {
   micOn = true; restarts = 0; $("micBtn").classList.add("on"); caption(spoken % 2 ? "Other side" : "Say a sentence");
   try { rec.start(); } catch { typeInstead(); }
 }
-function stopMic() { micOn = false; $("micBtn").classList.remove("on"); try { rec && rec.stop(); } catch {} caption(""); }
+function stopMic() {
+  micOn = false; $("micBtn").classList.remove("on"); try { rec && rec.stop(); } catch {} caption("");
+  if (proc) { proc.onaudioprocess = null; try { proc.disconnect(); src.disconnect(); } catch {} proc = src = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  buf = []; voiced = false;
+}
+
+// ---- speech inside the page, for browsers without their own (Chrome and others on iPhone, Firefox)
+const LOCAL = !SR && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+let asr = null, asrLoading = null, actx = null, src = null, proc = null, buf = [], pre = [], voiced = false, quiet = 0, busy = 0, shown = 0, slowT = 0;
+(() => {                                                                   // a ring of type that comes into focus as the voice loads
+  const ring = $("ring"), chars = "nothing to say · saying it anyway · ".split(""), n = chars.length;
+  chars.forEach((c, i) => { const el = document.createElement("span"); el.textContent = c;
+    el.style.transform = `rotate(${i / n * 360}deg) translateY(-54px)`; ring.appendChild(el); });
+})();
+function loader(on, p = 0, label = "") {
+  const L = $("loader");
+  if (!on) { document.body.classList.remove("loading"); L.classList.remove("slow"); clearTimeout(slowT); slowT = 0; return; }
+  if (!document.body.classList.contains("loading")) { document.body.classList.add("loading"); slowT = setTimeout(() => L.classList.add("slow"), 1400); }
+  shown = Math.max(shown, p);
+  L.style.setProperty("--b", (6 * (1 - shown) ** 1.5).toFixed(2) + "px");          // blur falls away
+  L.style.setProperty("--f", (.4 + 3 * (1 - shown)).toFixed(2) + "px");            // the fringes close in
+  $("loadText").textContent = label + (p < 1 ? "  " + Math.round(shown * 100) + "%" : "");
+}
+async function loadASR() {
+  if (asr) return asr;
+  if (!asrLoading) asrLoading = (async () => {
+    shown = 0; loader(true, 0, "Loading the voice");
+    const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1");
+    const files = {};
+    const p = await pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny.en", {
+      dtype: "q8", device: "wasm",
+      progress_callback: d => {
+        if (d.status !== "progress" || !d.total) return;
+        files[d.file] = [d.loaded, d.total]; let a = 0, b = 0; for (const [l, t] of Object.values(files)) { a += l; b += t; }
+        loader(true, a / b * .96, "Loading the voice");
+      } });
+    loader(true, 1, "Ready"); setTimeout(() => loader(false), 700);
+    return p;
+  })();
+  try { asr = await asrLoading; } catch (e) { asrLoading = null; loader(false); throw e; }
+  return asr;
+}
+async function startLocal() {
+  actx = actx || new (window.AudioContext || window.webkitAudioContext)();       // made inside the tap, so phones allow sound
+  micOn = true; $("micBtn").classList.add("on");
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    if (!micOn) return stopMic();
+    await actx.resume();
+    loadASR().catch(() => typeInstead());                                     // load while they start talking
+    src = actx.createMediaStreamSource(micStream); proc = actx.createScriptProcessor(4096, 1, 1);
+    src.connect(proc); proc.connect(actx.destination);
+    proc.onaudioprocess = e => listen(e.inputBuffer.getChannelData(0));
+    caption(spoken % 2 ? "Other side" : "Say a sentence");
+  } catch { typeInstead(); }
+}
+function listen(ch) {                                                      // collect one spoken sentence at a time
+  let e = 0; for (let i = 0; i < ch.length; i++) e += ch[i] * ch[i];
+  const rms = Math.sqrt(e / ch.length), chunk = new Float32Array(ch), secs = ch.length / actx.sampleRate;
+  if (rms > .018) { if (!voiced) { buf = pre.slice(); voiced = true; } quiet = 0; buf.push(chunk); }
+  else if (voiced) { buf.push(chunk); quiet += secs; }
+  else { pre.push(chunk); if (pre.length > 3) pre.shift(); }
+  const len = buf.reduce((a, c) => a + c.length, 0) / actx.sampleRate;
+  if (voiced && (quiet > .8 || len > 14)) { const seg = buf; buf = []; voiced = false; quiet = 0; transcribe(seg); }
+}
+async function transcribe(seg) {
+  const all = new Float32Array(seg.reduce((a, c) => a + c.length, 0)); let o = 0; for (const c of seg) { all.set(c, o); o += c.length; }
+  const r = actx.sampleRate / 16000, out = new Float32Array(Math.floor(all.length / r));   // to the 16 kHz the model hears
+  for (let i = 0; i < out.length; i++) { const x = i * r, j = Math.floor(x), f = x - j; out[i] = all[j] * (1 - f) + (all[j + 1] || 0) * f; }
+  busy++; if (asr) caption("&hellip;");
+  try {
+    const model = await loadASR(), res = await model(out);
+    const txt = (res.text || "").replace(/\[[^\]]*\]|\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+    if (txt.length > 1 && micOn) say(txt); else if (micOn) caption(spoken % 2 ? "Other side" : "Say a sentence");
+  } catch { typeInstead(); }
+  busy--;
+}
 function say(txt) {
   txt = clean(txt); if (!txt) return;
   const P = addPlane(txt); spoken++;
