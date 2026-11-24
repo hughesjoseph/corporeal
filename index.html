@@ -382,6 +382,29 @@ function stepDemo(t) {
   if (u >= 1) { demo.i++; demo.t0 = t; if (demo.i >= demo.keys.length) stopDemo(); }
 }
 
+// ================= grain over everything, behind the sentences =================
+// A full-screen layer of coloured grain, multiplied over the view. Each two-pixel clump loses one or two of its
+// red, green and blue channels at random and re-shuffles ~18 times a second, so the whole space jostles.
+const grain = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  vertexShader: `void main(){ gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: `
+    uniform float uTime, uAmount;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      float tick = floor(uTime * 18.);
+      vec2 cell = floor(gl_FragCoord.xy / 2.);
+      vec2 wob = floor((vec2(hash(cell + tick), hash(cell - tick)) * 2. - 1.) * 1.5);   // clumps nudge sideways
+      vec2 c = cell + wob;
+      vec3 g = vec3(hash(c + tick * 1.13 + .1), hash(c + tick * 1.29 + 3.7), hash(c + tick * .87 + 7.3));
+      vec3 speck = smoothstep(.66, .97, g);                                        // sparser: film grain, not TV static
+      gl_FragColor = vec4(1. - uAmount * .5 * speck, 1.);
+    }`,
+  uniforms: { uTime: { value: 0 }, uAmount: { value: 0 } },
+  transparent: true, depthTest: false, depthWrite: false,
+  blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.DstColorFactor, blendDst: THREE.ZeroFactor,
+}));
+grain.frustumCulled = false; grain.renderOrder = 999; scene.add(grain);
+
 // ================= frame =================
 const keys = new Set();
 let lastT = performance.now();
@@ -412,6 +435,13 @@ function frame(t) {
       su.uCam.value.copy(rig.pos); P.group.worldToLocal(su.uCam.value);
     }
   }
+  // full grain once you are behind the sentences, a little when you are deep inside a letter
+  let inside = 0;
+  for (const P of planes) inside = Math.max(inside, 1 - THREE.MathUtils.smoothstep(planeDistance(P), .3, 2.2));
+  const behind = THREE.MathUtils.smoothstep(-rig.pos.z, .2, 2.5);
+  grain.material.uniforms.uAmount.value = Math.max(behind, inside * .45);
+  grain.material.uniforms.uTime.value = t / 1000;
+  grain.visible = grain.material.uniforms.uAmount.value > .01;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
