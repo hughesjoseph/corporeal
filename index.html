@@ -263,7 +263,7 @@ const FACE_FS = `
 // shadow. No hard walls, only gradients; a fine grain from the sampling, like 90s print.
 const VOL_VS = `varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`;
 const VOL_FS = `
-  uniform sampler2D tSub; uniform vec2 uSize, uTexSize; uniform float uDepth, uOpacity, uSpread, uSigma;
+  uniform sampler2D tSub; uniform vec2 uSize, uTexSize; uniform float uDepth, uOpacity, uSpread, uSigma, uTime;
   uniform vec3 uCam, uFg, uBg; varying vec3 vPos;
   float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
   vec3 cov(vec2 uv, float k){
@@ -279,7 +279,12 @@ const VOL_FS = `
     float tmin = max(max(max(tn.x, tn.y), tn.z), 0.), tmax = min(min(tf.x, tf.y), tf.z);
     if (tmax <= tmin) discard;
     const int N = 72;
-    float dt = (tmax - tmin) / float(N), t = tmin + dt * hash(gl_FragCoord.xy);
+    // live grain: clumps of 2 screen pixels re-shuffle ~18 times a second, each with its own wobble,
+    // so the dots jostle for position while the colour underneath stays put
+    float tick = floor(uTime * 18.);
+    vec2 cell = floor(gl_FragCoord.xy / 2.);
+    vec2 wob = vec2(hash(cell + tick * .37), hash(cell - tick * .61)) * 2. - 1.;
+    float dt = (tmax - tmin) / float(N), t = tmin + dt * hash(cell + wob * 1.7 + tick);
     vec3 C = vec3(0.); float A = 0.;
     for (int i = 0; i < N; i++) {
       vec3 p = ro + rd * t;
@@ -321,7 +326,7 @@ function addPlane(text) {
   const box = new THREE.BoxGeometry(w, h, DEPTH); box.translate(0, 0, -DEPTH / 2);
   const solid = new THREE.Mesh(box, new THREE.ShaderMaterial({ vertexShader: VOL_VS, fragmentShader: VOL_FS, side: THREE.BackSide, transparent: true, depthWrite: false, 
     uniforms: { tSub: { value: tSub }, uSize: { value: new THREE.Vector2(w, h) }, uTexSize: { value: ts }, uDepth: { value: 0 }, uSpread: { value: 0 },
-      uSigma: { value: 18 }, uOpacity: { value: 0 }, uCam: { value: new THREE.Vector3() }, uFg: { value: INK }, uBg: { value: PAPER } } }));
+      uSigma: { value: 18 }, uTime: { value: 0 }, uOpacity: { value: 0 }, uCam: { value: new THREE.Vector3() }, uFg: { value: INK }, uBg: { value: PAPER } } }));
   solid.renderOrder = 1; solid.visible = false; group.add(solid);
   const L = layout(planes.length);
   group.position.copy(L.p); group.rotation.copy(L.r); group.scale.setScalar(L.s);
@@ -403,7 +408,7 @@ function frame(t) {
     P.solid.visible = depth > .01;
     if (P.solid.visible) {
       const su = P.solid.material.uniforms;
-      su.uDepth.value = DEPTH * depth; su.uOpacity.value = e * Math.min(1, depth * 1.6); su.uSpread.value = near * 2.6;
+      su.uDepth.value = DEPTH * depth; su.uOpacity.value = e * Math.min(1, depth * 1.6); su.uSpread.value = near * 2.6; su.uTime.value = t / 1000;
       su.uCam.value.copy(rig.pos); P.group.worldToLocal(su.uCam.value);
     }
   }
