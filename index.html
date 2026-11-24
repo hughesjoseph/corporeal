@@ -139,13 +139,13 @@
           <li>The result is enlarged with a soft bicubic filter, like the screenshot in Photoshop: no pixels, only fringes.</li>
           <li>Up close, red and blue slide apart in the screen's own order (red right, blue left), so the fringes widen without leaving their palette.</li>
           <li>Depth is a soft volume, ray-marched in the browser: every layer of the letter is the same screenshot, blurrier and with wider fringes the deeper it sits, accumulated like smoke or a prism's shadow. No hard edges, only gradients.</li>
-          <li>Speech comes through the browser's speech recognition; turns alternate walls. The demo is set with quotations from Cage, Cooper and Fletcher.</li>
+          <li>Speech comes through the browser's own speech recognition or, where there is none, a small Whisper model that runs in the page; turns alternate walls. The demo is set with quotations from Cage, Cooper and Fletcher.</li>
         </ol>
-        <p>HTML, WebGL (three.js), Web Speech API.</p>
+        <p>HTML, WebGL (three.js), Web Speech API, Whisper (transformers.js).</p>
       </section>
       <section>
         <h2>Privacy</h2>
-        <p>Nothing is recorded or stored. Speech recognition is provided by your browser, which may process audio on its own servers (Chrome uses Google). Best in Chrome on a laptop.</p>
+        <p>Nothing is recorded or stored. Speech is recognised by your browser, which may process audio on its own servers (Chrome uses Google), or by a model that runs on your device, where audio never leaves it. Best in Chrome on a laptop.</p>
       </section>
     </div>
   </div>
@@ -473,11 +473,12 @@ function frame(t) {
 
 // ================= speech =================
 const SR = /CriOS|FxiOS|EdgiOS|GSA\//.test(navigator.userAgent) ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);   // other browsers on iPhone have no working speech: type instead
-const typeInstead = () => { stopMic(); document.body.classList.add("notalk"); $("typeInput").focus(); };
+const typeInstead = msg => { stopMic(); if (msg) { caption(msg); setTimeout(() => caption(""), 3000); } document.body.classList.add("notalk"); $("typeInput").focus(); };
+const CAN_LOCAL = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); let useLocal = false;
 let rec = null, micOn = false, micStream = null, restarts = 0;
 const clean = s => s.replace(/<\/?s>/gi, "").trim();
 async function startMic() {
-  if (!SR) { if (LOCAL) return startLocal(); document.body.classList.add("notalk"); $("typeInput").focus(); return; }
+  if (!SR || useLocal) { if (CAN_LOCAL) return startLocal(); typeInstead(); return; }
   if (!rec) {
     rec = new SR(); rec.lang = navigator.language || "en-GB"; rec.interimResults = true; rec.continuous = true;
     rec.onresult = ev => {
@@ -487,7 +488,11 @@ async function startMic() {
       }
       restarts = 0;
     };
-    rec.onerror = ev => { if (ev.error !== "no-speech" && ev.error !== "aborted") typeInstead(); };   // any real failure: offer the typing box
+    rec.onerror = ev => {
+      if (ev.error === "no-speech" || ev.error === "aborted") return;
+      if (ev.error !== "not-allowed" && CAN_LOCAL) { useLocal = true; micOn = false; try { rec.stop(); } catch {} startLocal(); return; }   // built-in speech broken: use the in-page model
+      typeInstead("Microphone not available");
+    };
     rec.onend = () => { if (micOn && restarts < 20) { restarts++; setTimeout(() => { try { rec.start(); } catch {} }, 300); } else if (micOn) stopMic(); };
   }
   micOn = true; restarts = 0; $("micBtn").classList.add("on"); caption(spoken % 2 ? "Other side" : "Say a sentence");
@@ -495,14 +500,14 @@ async function startMic() {
 }
 function stopMic() {
   micOn = false; $("micBtn").classList.remove("on"); try { rec && rec.stop(); } catch {} caption("");
-  if (proc) { proc.onaudioprocess = null; try { proc.disconnect(); src.disconnect(); } catch {} proc = src = null; }
+  if (proc) { proc.onaudioprocess = null; try { proc.disconnect(); src.disconnect(); } catch {} proc = src = null;
+    if (buf.length && buf.reduce((a, c) => a + c.length, 0) / actx.sampleRate > .4) transcribe(buf); }   // tapping Speak again sends what was just said
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   buf = []; voiced = false;
 }
 
 // ---- speech inside the page, for browsers without their own (Chrome and others on iPhone, Firefox)
-const LOCAL = !SR && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-let asr = null, asrLoading = null, actx = null, src = null, proc = null, buf = [], pre = [], voiced = false, quiet = 0, busy = 0, shown = 0, slowT = 0;
+let asr = null, asrLoading = null, actx = null, src = null, proc = null, buf = [], pre = [], voiced = false, quiet = 0, busy = 0, shown = 0, slowT = 0, floor = .004;
 (() => {                                                                   // a ring of type that comes into focus as the voice loads
   const ring = $("ring"), chars = "nothing to say · saying it anyway · ".split(""), n = chars.length;
   chars.forEach((c, i) => { const el = document.createElement("span"); el.textContent = c;
@@ -543,17 +548,19 @@ async function startLocal() {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     if (!micOn) return stopMic();
     await actx.resume();
-    loadASR().catch(() => typeInstead());                                     // load while they start talking
+    loadASR().catch(() => typeInstead("The voice could not load"));                                     // load while they start talking
     src = actx.createMediaStreamSource(micStream); proc = actx.createScriptProcessor(4096, 1, 1);
     src.connect(proc); proc.connect(actx.destination);
     proc.onaudioprocess = e => listen(e.inputBuffer.getChannelData(0));
     caption(spoken % 2 ? "Other side" : "Say a sentence");
-  } catch { typeInstead(); }
+  } catch { typeInstead("Microphone not available"); }
 }
 function listen(ch) {                                                      // collect one spoken sentence at a time
   let e = 0; for (let i = 0; i < ch.length; i++) e += ch[i] * ch[i];
   const rms = Math.sqrt(e / ch.length), chunk = new Float32Array(ch), secs = ch.length / actx.sampleRate;
-  if (rms > .018) { if (!voiced) { buf = pre.slice(); voiced = true; } quiet = 0; buf.push(chunk); }
+  if (!voiced) floor = floor * .92 + Math.min(rms, .05) * .08;                  // learn the room
+  const loud = rms > Math.max(.006, floor * 2.6);
+  if (loud) { if (!voiced) { buf = pre.slice(); voiced = true; if (micOn) caption("Listening&hellip;"); } quiet = 0; buf.push(chunk); }
   else if (voiced) { buf.push(chunk); quiet += secs; }
   else { pre.push(chunk); if (pre.length > 3) pre.shift(); }
   const len = buf.reduce((a, c) => a + c.length, 0) / actx.sampleRate;
@@ -563,12 +570,12 @@ async function transcribe(seg) {
   const all = new Float32Array(seg.reduce((a, c) => a + c.length, 0)); let o = 0; for (const c of seg) { all.set(c, o); o += c.length; }
   const r = actx.sampleRate / 16000, out = new Float32Array(Math.floor(all.length / r));   // to the 16 kHz the model hears
   for (let i = 0; i < out.length; i++) { const x = i * r, j = Math.floor(x), f = x - j; out[i] = all[j] * (1 - f) + (all[j + 1] || 0) * f; }
-  busy++; if (asr) caption("&hellip;");
+  busy++; caption(asr ? "&hellip;" : "Loading the voice&hellip;");
   try {
     const model = await loadASR(), res = await model(out);
     const txt = (res.text || "").replace(/\[[^\]]*\]|\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
-    if (txt.length > 1 && micOn) say(txt); else if (micOn) caption(spoken % 2 ? "Other side" : "Say a sentence");
-  } catch { typeInstead(); }
+    if (txt.length > 1) say(txt); else if (micOn) caption(spoken % 2 ? "Other side" : "Say a sentence");
+  } catch { typeInstead("Could not hear that, type instead"); }
   busy--;
 }
 function say(txt) {
