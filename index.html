@@ -383,20 +383,20 @@ function buildDemo() {
   // pos, look-at, seconds to get there, pace, bank
   return [
     { pos: V(0, 0, 12), at: V(0, 0, 0), d: 0, ease: "inout", roll: 0 },
-    { pos: V(.8, .3, 9.4), at: V(0, 0, 0), d: 6, ease: "inout", roll: 0 },                         // hover: the screenshot
-    { pos: V(-3.2, -1.8, 5.2), at: L(lx, ly, 0), d: 4.5, ease: "in", roll: .16 },                   // swoop down at the "I"
-    { pos: L(lx + .22, ly - .02, .55), at: L(lx + .5, ly, -2), d: 5.5, ease: "out", roll: -.05 },   // glide into the gap
-    { pos: L(lx + .26, ly - .05, -DEPTH * .35), at: L(lx + .7, ly + .15, -3), d: 10, ease: "inout", roll: .04 },  // hang in the rainbow
-    { pos: L(lx + .9, ly + .5, -DEPTH - 2.2), at: L(lx + 2.5, ly, -1), d: 6, ease: "inout", roll: -.12 },        // out the back, turning
-    { pos: V(2.4, .6, -5.8), at: V(-.5, 0, 0), d: 6, ease: "inout", roll: 0 },                      // look back at the mirrored words, in the grain
-    { pos: V(.6, 4.2, -10), at: centre(A), d: 4, ease: "in", roll: .22 },                           // up and over, fast
-    { pos: near(A, 2.4, 1.2, .3), at: centre(A), d: 5, ease: "lin", roll: .08 },                   // skim the first wall
-    { pos: near(B, 3.4, -1.5, -.4), at: centre(B), d: 4.5, ease: "lin", roll: -.18 },              // bank across to the other side
-    { pos: near(B, .45, -1.6, .2), at: centre(B).add(V(-1.6, .2, 0)).addScaledVector(normal(B), -2), d: 6, ease: "out", roll: -.04 },  // dive in
-    { pos: near(B, -.55, -1.4, .1), at: centre(B).add(V(-1, 0, 0)).addScaledVector(normal(B), -4), d: 9, ease: "inout", roll: .05 },  // hang in its rainbow
-    { pos: near(C, 3, 0, .4), at: centre(C), d: 5, ease: "inout", roll: .12 },
-    { pos: near(F, 2.2, 0, 0).add(V(0, 0, 3)), at: centre(F).add(V(0, 0, -2)), d: 5, ease: "lin", roll: -.1 },   // glide low over the floor
-    { pos: V(0, 7, 14), at: V(0, -1, -14), d: 10, ease: "inout", roll: 0 },                         // pull up and away
+    { pos: V(.8, .3, 9.4), at: V(0, 0, 0), d: 3.5, ease: "inout", roll: 0 },                         // hover: the screenshot
+    { pos: V(-3.2, -1.8, 5.2), at: L(lx, ly, 0), d: 3, ease: "in", roll: .16 },                   // swoop down at the "I"
+    { pos: L(lx + .22, ly - .02, .55), at: L(lx + .5, ly, -2), d: 3.5, ease: "out", roll: -.05 },   // glide into the gap
+    { pos: L(lx + .26, ly - .05, -DEPTH * .35), at: L(lx + .7, ly + .15, -3), d: 6, ease: "inout", roll: .04 },  // hang in the rainbow
+    { pos: L(lx + .9, ly + .5, -DEPTH - 2.2), at: L(lx + 2.5, ly, -1), d: 4, ease: "inout", roll: -.12 },        // out the back, turning
+    { pos: V(2.4, .6, -5.8), at: V(-.5, 0, 0), d: 3.5, ease: "inout", roll: 0 },                      // look back at the mirrored words, in the grain
+    { pos: V(.6, 4.2, -10), at: centre(A), d: 2.5, ease: "in", roll: .22 },                           // up and over, fast
+    { pos: near(A, 2.4, 1.2, .3), at: centre(A), d: 3.5, ease: "lin", roll: .08 },                   // skim the first wall
+    { pos: near(B, 3.4, -1.5, -.4), at: centre(B), d: 3, ease: "lin", roll: -.18 },              // bank across to the other side
+    { pos: near(B, .45, -1.6, .2), at: centre(B).add(V(-1.6, .2, 0)).addScaledVector(normal(B), -2), d: 3.5, ease: "out", roll: -.04 },  // dive in
+    { pos: near(B, -.55, -1.4, .1), at: centre(B).add(V(-1, 0, 0)).addScaledVector(normal(B), -4), d: 5, ease: "inout", roll: .05 },  // hang in its rainbow
+    { pos: near(C, 3, 0, .4), at: centre(C), d: 3.5, ease: "inout", roll: .12 },
+    { pos: near(F, 2.2, 0, 0).add(V(0, 0, 3)), at: centre(F).add(V(0, 0, -2)), d: 3.5, ease: "lin", roll: -.1 },   // glide low over the floor
+    { pos: V(0, 7, 14), at: V(0, -1, -14), d: 6, ease: "inout", roll: 0 },                         // pull up and away
   ];
 }
 function startDemo() {
@@ -434,7 +434,7 @@ function frame(t) {
   if (keys.has("s") || keys.has("arrowdown")) { tgt.pos.addScaledVector(f, -sp); manual(); }
   if (keys.has("a") || keys.has("arrowleft")) { tgt.pos.addScaledVector(r, -sp); manual(); }
   if (keys.has("d") || keys.has("arrowright")) { tgt.pos.addScaledVector(r, sp); manual(); }
-  const k = 1 - Math.pow(demo ? .02 : .006, dt);
+  const k = 1 - Math.pow(demo ? .004 : .006, dt);
   rig.pos.lerp(tgt.pos, k); rig.yaw = angleLerp(rig.yaw, tgt.yaw, k); rig.pitch += (tgt.pitch - rig.pitch) * k; rig.roll += (tgt.roll - rig.roll) * k;
   camera.position.copy(rig.pos); camera.lookAt(tmp.copy(rig.pos).add(forward(rig.yaw, rig.pitch))); camera.rotateZ(rig.roll);   // bank into turns
 
