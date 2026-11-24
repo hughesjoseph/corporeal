@@ -33,8 +33,8 @@
   @keyframes pulse { 50% { opacity: .3; } }
   #caption { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 6; max-width: 70vw; text-align: center; font-size: 15px; min-height: 1.2em; pointer-events: none; }
   #typeInput { display: none; font: inherit; font-size: 13px; width: 300px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); outline: none; }
-  body.notalk #typeInput { display: block; } body.notalk #micBtn { display: none; }
-  @media (max-width: 600px) { #typeInput { width: 52vw; font-size: 16px; } body.notalk #howtoTouch, body.notalk #howto { display: none; } }   /* 16px stops iPhone zooming into the field */
+  body.notalk #typeInput, body.typing #typeInput { display: block; } body.notalk #micBtn { display: none; }
+  @media (max-width: 600px) { #typeInput { width: 52vw; font-size: 16px; } body.notalk #howtoTouch, body.notalk #howto, body.typing #howtoTouch, body.typing #howto { display: none; } body.typing #typeInput { width: 38vw; } }   /* 16px stops iPhone zooming into the field */
   body.demoing #top, body.demoing #bottom, body.demoing #caption { opacity: 0; transition: opacity 1.2s; }
   body.demoing.awake #top, body.demoing.awake #bottom { opacity: 1; transition: opacity .3s; }
 
@@ -486,7 +486,7 @@ function frame(t) {
 // ================= speech =================
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const SR = IOS ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);   // on iPhone and iPad the in-page model is more reliable than Apple's   // other browsers on iPhone have no working speech: type instead
-const typeInstead = msg => { dbg("type instead: " + msg); stopMic(); if (msg) { caption(msg); setTimeout(() => caption(""), 3000); } document.body.classList.add("notalk"); $("typeInput").focus(); };
+const typeInstead = (msg, ms = 3000) => { dbg("type instead: " + msg); stopMic(); if (msg) { caption(msg); setTimeout(() => caption(""), ms); } document.body.classList.add("typing"); };   // offer typing, keep Speak to try again
 const CAN_LOCAL = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); let useLocal = false;
 const DEBUG = /[?&]debug/.test(location.search);                          // add ?debug to the address to see each step on screen
 function dbg(m) { if (!DEBUG) return; const el = $("dbg"); el.style.display = "block"; el.textContent += new Date().toTimeString().slice(3, 8) + "  " + m + "\n"; el.scrollTop = 1e9; }
@@ -574,7 +574,10 @@ async function startLocal() {
     src.connect(proc); proc.connect(actx.destination);
     proc.onaudioprocess = e => listen(e.inputBuffer.getChannelData(0));
     caption(spoken % 2 ? "Other side" : "Say a sentence");
-  } catch (e) { dbg("mic failed " + (e && (e.name + " " + e.message))); typeInstead("Microphone not available"); }
+  } catch (e) {
+    dbg("mic failed " + (e && (e.name + " " + e.message)));
+    typeInstead(e && e.name === "NotAllowedError" ? (IOS ? "Allow the microphone for " + (/CriOS/.test(navigator.userAgent) ? "Chrome" : /FxiOS/.test(navigator.userAgent) ? "Firefox" : "Safari") + " in your iPhone Settings, then reload" : "Allow the microphone for this site, then try again") : "Microphone not available", 7000);
+  }
 }
 let lastLvl = 0;
 function listen(ch) {                                                      // collect one spoken sentence at a time
