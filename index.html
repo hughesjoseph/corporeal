@@ -383,16 +383,16 @@ function buildDemo() {
   // pos, look-at, seconds to get there, pace, bank
   return [
     { pos: V(0, 0, 12), at: V(0, 0, 0), d: 0, ease: "inout", roll: 0 },
-    { pos: V(.7, .25, 8.4), at: V(0, 0, 0), d: 2.6, ease: "inout", roll: 0 },                        // slow: settle on the screenshot
-    { pos: V(-3.2, -1.8, 5.2), at: L(lx, ly, 0), d: 1.8, ease: "in", roll: .14 },                   // fast: swoop at the "I"
-    { pos: L(lx + .22, ly - .02, .55), at: L(lx + .5, ly, -2), d: 2.4, ease: "out", roll: -.04 },  // ease out into the gap
-    { pos: L(lx + .26, ly - .05, -DEPTH * .35), at: L(lx + .7, ly + .15, -3), d: 4.6, ease: "inout", roll: .03 },  // slow: hang in the rainbow
-    { pos: L(lx + .9, ly + .5, -DEPTH - 2.2), at: L(lx + 2.5, ly, -1), d: 2.6, ease: "inout", roll: -.1 },         // out the back, turning
-    { pos: V(.6, 2.6, -6.5), at: centre(B), d: 1.8, ease: "in", roll: .18 },                         // fast: up and over
-    { pos: near(B, 3.4, -1.5, -.4), at: centre(B), d: 2.2, ease: "out", roll: -.14 },               // bank round to the wall
-    { pos: near(B, .45, -1.6, .2), at: centre(B).add(V(-1.6, .2, 0)).addScaledVector(normal(B), -2), d: 2.2, ease: "inout", roll: -.03 },  // dive in
-    { pos: near(B, -.55, -1.4, .1), at: centre(B).add(V(-1, 0, 0)).addScaledVector(normal(B), -4), d: 4, ease: "inout", roll: .04 },   // slow: hang in its rainbow
-    { pos: V(0, 4.2, 10.5), at: V(0, -.8, -10), d: 4, ease: "inout", roll: 0 },                          // pull up and away
+    { pos: V(.7, .25, 8.4), at: V(0, 0, 0), d: 4, ease: "inout", roll: 0 },                        // slow: settle on the screenshot
+    { pos: V(-3.2, -1.8, 5.2), at: L(lx, ly, 0), d: 2.8, ease: "in", roll: .14 },                   // fast: swoop at the "I"
+    { pos: L(lx + .22, ly - .02, .55), at: L(lx + .5, ly, -2), d: 3.7, ease: "out", roll: -.04 },  // ease out into the gap
+    { pos: L(lx + .26, ly - .05, -DEPTH * .35), at: L(lx + .7, ly + .15, -3), d: 7.1, ease: "inout", roll: .03 },  // slow: hang in the rainbow
+    { pos: L(lx + .9, ly + .5, -DEPTH - 2.2), at: L(lx + 2.5, ly, -1), d: 4, ease: "inout", roll: -.1 },         // out the back, turning
+    { pos: V(.6, 2.6, -6.5), at: centre(B), d: 2.8, ease: "in", roll: .18 },                         // fast: up and over
+    { pos: near(B, 3.4, -1.5, -.4), at: centre(B), d: 3.4, ease: "out", roll: -.14 },               // bank round to the wall
+    { pos: near(B, .45, -1.6, .2), at: centre(B).add(V(-1.6, .2, 0)).addScaledVector(normal(B), -2), d: 3.4, ease: "inout", roll: -.03 },  // dive in
+    { pos: near(B, -.55, -1.4, .1), at: centre(B).add(V(-1, 0, 0)).addScaledVector(normal(B), -4), d: 6.2, ease: "inout", roll: .04 },   // slow: hang in its rainbow
+    { pos: V(0, 4.2, 10.5), at: V(0, -.8, -10), d: 6.2, ease: "inout", roll: 0 },                          // pull up and away
   ];
 }
 function startDemo() {
