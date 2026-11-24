@@ -54,6 +54,8 @@
   #closeInfo { position: fixed; top: 18px; right: 24px; z-index: 10; font-size: 13px; display: none; }
   body.info #closeInfo { display: block; } body.info #infoBtn { visibility: hidden; }
   @media (max-width: 900px) { #info .wrap { grid-template-columns: 1fr; } #howto { display: none; } }
+  #howtoTouch { display: none; color: var(--dim); }
+  @media (pointer: coarse) { #howto { display: none; } #howtoTouch { display: block; } }
   video { display: none; }
 </style>
 </head>
@@ -70,6 +72,7 @@
 
 <footer id="bottom">
   <div id="howto" class="lcd">Drag to look &nbsp;·&nbsp; Scroll to move through &nbsp;·&nbsp; Speak a sentence and it is set in space</div>
+  <div id="howtoTouch" class="lcd">Drag to look &nbsp;·&nbsp; Spread two fingers to fly</div>
   <div id="actions">
     <input id="typeInput" maxlength="90" placeholder="Type a sentence, press Enter" autocomplete="off">
     <button id="demoBtn" class="lcd">Demo</button>
@@ -222,7 +225,7 @@ const INK = new THREE.Color("#111111"), PAPER = new THREE.Color("#ffffff");
 
 // ================= scene =================
 const renderer = new THREE.WebGLRenderer({ canvas: $("gl"), antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, matchMedia("(pointer: coarse)").matches ? 1.5 : 2));
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 renderer.setClearColor(0xffffff, 1);                 // a real white sheet for the letters to be multiplied onto
 const scene = new THREE.Scene();
@@ -493,15 +496,25 @@ function closeInfo() { document.body.classList.remove("info"); }
 $("infoBtn").onclick = openInfo; $("closeInfo").onclick = closeInfo;
 
 // ================= look and move =================
-let drag = null;
-$("gl").addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, yaw: tgt.yaw, pitch: tgt.pitch }; $("gl").setPointerCapture(e.pointerId); });
+let drag = null; const touches = new Map(); let pinch = null;
+const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+$("gl").addEventListener("pointerdown", e => {
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); $("gl").setPointerCapture(e.pointerId);
+  if (touches.size === 2) { drag = null; pinch = spread(); manual(); }                          // two fingers: fly
+  else if (touches.size === 1) drag = { x: e.clientX, y: e.clientY, yaw: tgt.yaw, pitch: tgt.pitch };   // one finger or mouse: look
+});
 $("gl").addEventListener("pointermove", e => {
   if (demo) { document.body.classList.add("awake"); clearTimeout(window._aw); window._aw = setTimeout(() => document.body.classList.remove("awake"), 2000); }
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch !== null && touches.size === 2) {                                                   // spread to fly forward, pinch to pull back
+    const d = spread(); tgt.pos.addScaledVector(forward(), (d - pinch) * .02); pinch = d; return;
+  }
   if (!drag) return; manual();
   tgt.yaw = drag.yaw + (e.clientX - drag.x) / innerWidth * 2.4;
   tgt.pitch = Math.max(-1.3, Math.min(1.3, drag.pitch + (e.clientY - drag.y) / innerHeight * 1.6));
 });
-$("gl").addEventListener("pointerup", () => drag = null);
+const lift = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; if (touches.size === 0) drag = null; };
+$("gl").addEventListener("pointerup", lift); $("gl").addEventListener("pointercancel", lift);
 addEventListener("wheel", e => { if (document.body.classList.contains("info")) return; manual(); tgt.pos.addScaledVector(forward(), -e.deltaY * (e.ctrlKey ? .02 : .006)); }, { passive: true });
 addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
